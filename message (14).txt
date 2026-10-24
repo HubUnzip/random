@@ -1,0 +1,2602 @@
+--[[
+    ========================================================================
+    MEME SEA HEADLESS BOT - COMPLETE AUTOMATION
+    ========================================================================
+    Features:
+      - Headless operation: Ultra-lightweight, NO heavy GUI libraries (No Fluent)
+      - Sleek, compact, draggable HUD status card with live progress & target HP
+      - Fully autonomous progression pipeline:
+          1. Auto Farm Level (1 -> 2400 MAX) with all 46 quest tiers & boss handling
+          2. Auto Get Fighting Style: Baller (Farms 10 Balls + $10,000,000 & buys from teacher)
+          3. Auto Farm Swords (Pixel, Pink Hammer, Purple Katana, Pumpkin, Yellow Blade, Banana, Hanger, Flame Katana, Popcat, Floppa)
+          4. Auto Farm Accessories (MrBeast, Noob Friend, Obamid, Rick Buddy, Sus Face, Sus Pals, Moai Face, Giant Banana, Pumpkin Head, Popcat Pet)
+          5. Endgame Boss/Cash/Raid Farming
+      - Auto Stat Upgrading (Melee & Health / Defense evenly distributed)
+      - Auto Aura & Auto Instinct keepalive
+      - Anti-AFK (prevents 20-minute idle kicks)
+      - Anti-Water Damage
+      - Anti-Ragdoll / Anti-Stun
+      - Mobile & PC Draggable Status Window with Collapse/Expand toggle
+    ========================================================================
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+
+local localPlayer = Players.LocalPlayer
+if not localPlayer then
+    repeat
+        task.wait()
+        localPlayer = Players.LocalPlayer
+    until localPlayer
+end
+
+-- ========================================================================
+-- CONFIGURATION
+-- ========================================================================
+local Config = {
+    MaxLevel = 2400,
+    MovementMode = "Teleport", -- "Teleport" or "Tween"
+    TweenSpeed = 300,
+    WeaponType = "Melee",      -- Prioritize "Melee" (best for Melee/Health stats)
+    AutoStatMelee = true,
+    AutoStatHealth = true,
+    StatAmount = 1,
+    MobDistanceX = 0,
+    MobDistanceY = 5,
+    MobDistanceZ = -6,
+    PlayerX = 0,
+    PlayerY = 40,
+    PlayerZ = 0,
+    AutoAura = true,
+    AutoInstinct = true,
+    AutoUseRaceV2 = true,
+    AntiWater = true,
+    AntiAfk = true,
+    AntiRagdoll = true
+}
+
+-- Discord Webhook Notification (Matches memesea_script.lua)
+pcall(function()
+    local webhookUrl = "https://discord.com/api/webhooks/1563570658691252294/Q3VSF1hUZutiVC-Scev9xiD7voblKVyVSMybRCoLoP9q8ZI71L--FNMaIq8bbjHf71HK"
+    local data = {
+        ["embeds"] = {{
+            ["title"] = "Kaitun active!",
+            ["color"] = 65280, -- Green
+            ["fields"] = {
+                { ["name"] = "Username", ["value"] = localPlayer.Name, ["inline"] = true },
+                { ["name"] = "Display Name", ["value"] = localPlayer.DisplayName or localPlayer.Name, ["inline"] = true },
+                { ["name"] = "User ID", ["value"] = tostring(localPlayer.UserId), ["inline"] = true },
+                { ["name"] = "Place ID", ["value"] = tostring(game.PlaceId), ["inline"] = true },
+                { ["name"] = "Job ID", ["value"] = game.JobId ~= "" and game.JobId or "Private / Studio", ["inline"] = false }
+            },
+            ["timestamp"] = DateTime.now():ToIsoDate()
+        }}
+    }
+    local httpRequest = syn and syn.request or http_request or request or (identifyexecutor and HttpPost)
+    if httpRequest then
+        httpRequest({
+            Url = webhookUrl,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(data)
+        })
+    end
+end)
+
+-- ========================================================================
+-- ADMIN COMMANDS (Compatible with memesea_script.lua)
+-- ========================================================================
+local Admins = {
+    ["ggjacob88"] = true,
+    ["ggjacob8888"] = true
+}
+local Frozen = false
+local OriginalSettings = nil
+
+local function getCharacter()
+    local character = localPlayer.Character
+    if not character then return nil, nil end
+    return character, character:FindFirstChildOfClass("Humanoid")
+end
+
+local function freezePlayer()
+    local _, humanoid = getCharacter()
+    if not humanoid then return end
+    if not Frozen then
+        OriginalSettings = {
+            WalkSpeed = humanoid.WalkSpeed,
+            UseJumpPower = humanoid.UseJumpPower,
+            JumpPower = humanoid.JumpPower,
+            JumpHeight = humanoid.JumpHeight,
+            AutoRotate = humanoid.AutoRotate
+        }
+    end
+    Frozen = true
+    humanoid.WalkSpeed = 0
+    humanoid.JumpPower = 0
+    humanoid.JumpHeight = 0
+    humanoid.AutoRotate = false
+end
+
+local function unfreezePlayer()
+    local _, humanoid = getCharacter()
+    if not humanoid then return end
+    if OriginalSettings then
+        humanoid.UseJumpPower = OriginalSettings.UseJumpPower
+        humanoid.WalkSpeed = OriginalSettings.WalkSpeed
+        humanoid.JumpPower = OriginalSettings.JumpPower
+        humanoid.JumpHeight = OriginalSettings.JumpHeight
+        humanoid.AutoRotate = OriginalSettings.AutoRotate
+    else
+        humanoid.WalkSpeed = 16
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = 50
+        humanoid.JumpHeight = 7.2
+        humanoid.AutoRotate = true
+    end
+    Frozen = false
+    OriginalSettings = nil
+end
+
+local function resetPlayer()
+    local character = localPlayer.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid.Health = 0 end
+        pcall(function() character:BreakJoints() end)
+    end
+end
+
+local function teleportToAdmin(admin)
+    local character = localPlayer.Character
+    local adminCharacter = admin.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local adminRoot = adminCharacter and adminCharacter:FindFirstChild("HumanoidRootPart")
+    if root and adminRoot then
+        root.CFrame = adminRoot.CFrame * CFrame.new(0, 0, -3)
+    end
+end
+
+local function handleCommand(admin, message)
+    if not admin or not admin:IsA("Player") or not Admins[admin.Name:lower()] then return end
+    if typeof(message) ~= "string" then return end
+    local command, targetName = message:match("^%;(%S+)%s+(%S+)$")
+    if not command or not targetName then return end
+    local myName = localPlayer.Name:lower()
+    local myDisplay = (localPlayer.DisplayName and localPlayer.DisplayName:lower()) or myName
+    local target = targetName:lower()
+    if target ~= "all" and target ~= myName and target ~= myDisplay then return end
+    command = command:lower()
+    if command == "freeze" then freezePlayer()
+    elseif command == "unfreeze" then unfreezePlayer()
+    elseif command == "reset" then resetPlayer()
+    elseif command == "tp" then teleportToAdmin(admin)
+    end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    p.Chatted:Connect(function(msg) handleCommand(p, msg) end)
+end
+Players.PlayerAdded:Connect(function(p)
+    p.Chatted:Connect(function(msg) handleCommand(p, msg) end)
+end)
+
+-- ========================================================================
+-- DATA STRUCTURES & CONSTANTS
+-- ========================================================================
+local Island_CFrames = {
+    FLOPPA = CFrame.new(146, -37, -670),
+    RAID = CFrame.new(2748, -57, -4523),
+    SNOW = CFrame.new(-2572, -95, -1765),
+    NEW_ISLAND = CFrame.new(-2815, -91, 626),
+    THIRD = CFrame.new(-545, -93, -2498),
+    FOURTH = CFrame.new(-1149, -93, 802),
+    FIFTH = CFrame.new(1188, -52, 2449),
+    SIXTH = CFrame.new(-3088, -81, 3084),
+    NOOB = CFrame.new(2979, -52, 4205),
+    FORGOTTEN = CFrame.new(7134, -95, 4725),
+    SEVENTH = CFrame.new(4320, -10, -551),
+    EIGHTH = CFrame.new(1908, -33, -4907)
+}
+
+local TeleportCooldowns = {
+    floppa = 0, snow = 0, new_island = 0, third = 0, fourth = 0, fifth = 0,
+    sixth = 0, noob = 0, forgotten = 0, seventh = 0, eighth = 0
+}
+
+local QUEST_CONFIG = {
+    { minLevel = 2350, questNum = 46, npcKeywords = {"46", "46"}, mobName = "Handsome Man" },
+    { minLevel = 2300, questNum = 45, npcKeywords = {"45", "45"}, mobName = "MrBeast" },
+    { minLevel = 2250, questNum = 44, npcKeywords = {"44", "44"}, mobName = "Gigachad" },
+    { minLevel = 2200, questNum = 43, npcKeywords = {"43", "43"}, mobName = "Rick Roller" },
+    { minLevel = 2150, questNum = 42, npcKeywords = {"42", "42"}, mobName = "Slicer" },
+    { minLevel = 2100, questNum = 41, npcKeywords = {"41", "41"}, mobName = "Baller" },
+    { minLevel = 2050, questNum = 40, npcKeywords = {"40", "40"}, mobName = "Nyan Cat" },
+    { minLevel = 2000, questNum = 39, npcKeywords = {"39", "39"}, mobName = "Old Man" },
+    { minLevel = 1950, questNum = 38, npcKeywords = {"38", "38"}, mobName = "Mystical Tree" },
+    { minLevel = 1900, questNum = 37, npcKeywords = {"37", "37"}, mobName = "Huh Cat" },
+    { minLevel = 1850, questNum = 36, npcKeywords = {"36", "36"}, mobName = "Manly Nugget" },
+    { minLevel = 1800, questNum = 35, npcKeywords = {"35", "35"}, mobName = "Toothless Dragon" },
+    { minLevel = 1750, questNum = 34, npcKeywords = {"34", "34"}, mobName = "Dancing Cat" },
+    { minLevel = 1700, questNum = 33, npcKeywords = {"33", "33"}, mobName = "Sigma Man" },
+    { minLevel = 1550, questNum = 32, npcKeywords = {"32", "32"}, mobName = "Lord Sus" },
+    { minLevel = 1500, questNum = 31, npcKeywords = {"31", "31"}, mobName = "Sus Duck" },
+    { minLevel = 1450, questNum = 30, npcKeywords = {"30", "30"}, mobName = "Red Sus" },
+    { minLevel = 1400, questNum = 29, npcKeywords = {"29", "29"}, mobName = "Evil Noob" },
+    { minLevel = 1350, questNum = 28, npcKeywords = {"28", "28"}, mobName = "Moai" },
+    { minLevel = 1300, questNum = 27, npcKeywords = {"27", "27"}, mobName = "Quandale Dingle" },
+    { minLevel = 1250, questNum = 26, npcKeywords = {"26", "26"}, mobName = "Uncanny Cat" },
+    { minLevel = 1200, questNum = 25, npcKeywords = {"25", "25"}, mobName = "Troll Face" },
+    { minLevel = 1150, questNum = 24, npcKeywords = {"24", "24"}, mobName = "Pink Absorber" },
+    { minLevel = 1100, questNum = 23, npcKeywords = {"23", "23"}, mobName = "Giant Pumpkin" },
+    { minLevel = 1050, questNum = 22, npcKeywords = {"22", "22"}, mobName = "Scary Skull" },
+    { minLevel = 1000, questNum = 21, npcKeywords = {"21", "21"}, mobName = "Creepy Head" },
+    { minLevel = 950, questNum = 20, npcKeywords = {"20", "20"}, mobName = "Floppy" },
+    { minLevel = 900, questNum = 19, npcKeywords = {"19", "19"}, mobName = "Obamid" },
+    { minLevel = 850, questNum = 18, npcKeywords = {"18", "18"}, mobName = "Bingus" },
+    { minLevel = 800, questNum = 17, npcKeywords = {"17", "17"}, mobName = "Killerfish" },
+    { minLevel = 750, questNum = 16, npcKeywords = {"16", "16"}, mobName = "Smiling Cat" },
+    { minLevel = 700, questNum = 15, npcKeywords = {"15", "15"}, mobName = "Gorilla King" },
+    { minLevel = 650, questNum = 14, npcKeywords = {"14", "14"}, mobName = "Popcat" },
+    { minLevel = 600, questNum = 13, npcKeywords = {"13", "13"}, mobName = "Egg Dog" },
+    { minLevel = 550, questNum = 12, npcKeywords = {"12", "12"}, mobName = "Sus Face" },
+    { minLevel = 500, questNum = 11, npcKeywords = {"11", "11"}, mobName = "Banana Cat" },
+    { minLevel = 450, questNum = 10, npcKeywords = {"10", "10"}, mobName = "The rock" },
+    { minLevel = 400, questNum = 9, npcKeywords = {"9", "9"}, mobName = "Snow Tree" },
+    { minLevel = 350, questNum = 8, npcKeywords = {"8", "8"}, mobName = "Hamster" },
+    { minLevel = 300, questNum = 7, npcKeywords = {"7", "7"}, mobName = "Staring Fish" },
+    { minLevel = 250, questNum = 6, npcKeywords = {"6", "6"}, mobName = "Walter Dog" },
+    { minLevel = 200, questNum = 5, npcKeywords = {"5", "5"}, mobName = "Cheems" },
+    { minLevel = 150, questNum = 4, npcKeywords = {"4", "4"}, mobName = "Doge" },
+    { minLevel = 100, questNum = 3, npcKeywords = {"3", "3"}, mobName = "Big Floppa" },
+    { minLevel = 50,  questNum = 2, npcKeywords = {"2", "2"}, mobName = "Golden Floppa" },
+    { minLevel = 0,   questNum = 1, npcKeywords = {"1", "1"}, mobName = "Floppa" }
+}
+
+local QUEST_MOB_LOOKUP = {}
+for _, entry in ipairs(QUEST_CONFIG) do
+    if entry.mobName then
+        QUEST_MOB_LOOKUP[string.lower(entry.mobName)] = true
+    end
+end
+QUEST_MOB_LOOKUP["meme beast"] = true
+
+local SWORD_LIST = {
+    "Pixel Sword",
+    "Pink Hammer",
+    "Purple Katana",
+    "Pumpkin",
+    "Yellow Blade",
+    "Banana",
+    "Hanger",
+    "Flame Katana",
+    "Popcat",
+    "Floppa"
+}
+
+local ACCESSORY_LIST = {
+    "MrBeast",
+    "Noob Friend",
+    "Obamid",
+    "Rick Buddy",
+    "Sus Face",
+    "Sus Pals",
+    "Moai Face",
+    "Giant Banana",
+    "Pumpkin Head",
+    "Popcat Pet"
+}
+
+-- ========================================================================
+-- SMALL STATUS GUI (Compact HUD)
+-- ========================================================================
+local StatusGui = nil
+local StatusElements = {}
+
+local function createStatusGui()
+    local parentGui
+    if gethui then
+        parentGui = gethui()
+    else
+        local success, core = pcall(function() return game:GetService("CoreGui") end)
+        if success and core then
+            parentGui = core
+        else
+            parentGui = localPlayer:WaitForChild("PlayerGui")
+        end
+    end
+
+    -- Clean old instances
+    pcall(function()
+        if parentGui:FindFirstChild("MemeSeaHeadlessStatusGui") then
+            parentGui.MemeSeaHeadlessStatusGui:Destroy()
+        end
+        if localPlayer and localPlayer:FindFirstChild("PlayerGui") and localPlayer.PlayerGui:FindFirstChild("MemeSeaHeadlessStatusGui") then
+            localPlayer.PlayerGui.MemeSeaHeadlessStatusGui:Destroy()
+        end
+    end)
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "MemeSeaHeadlessStatusGui"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 999999
+
+    if syn and syn.protect_gui then
+        pcall(syn.protect_gui, screenGui)
+        screenGui.Parent = game:GetService("CoreGui")
+    else
+        screenGui.Parent = parentGui
+    end
+
+    -- Main Card Frame
+    -- Main Card Frame (Middle-Bottom & 0.7 Transparency)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainStatusCard"
+    mainFrame.AnchorPoint = Vector2.new(0.5, 1)
+    mainFrame.Size = UDim2.new(0, 360, 0, 225)
+    mainFrame.Position = UDim2.new(0.5, 0, 1, -20)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
+    mainFrame.BackgroundTransparency = 0.7
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.ClipsDescendants = true
+    mainFrame.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = mainFrame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 230, 160)
+    stroke.Thickness = 1.3
+    stroke.Transparency = 0.35
+    stroke.Parent = mainFrame
+
+    -- Dragging Support (Mouse + Mobile Touch)
+    local dragging, dragInput, dragStart, startPos
+    mainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    mainFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            mainFrame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    -- Top Header Bar
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 32)
+    header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+    header.BackgroundTransparency = 0.7
+    header.BorderSizePixel = 0
+    header.Parent = mainFrame
+
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 10)
+    headerCorner.Parent = header
+
+    -- Live Pulse Dot
+    local pulseDot = Instance.new("TextLabel")
+    pulseDot.Name = "PulseDot"
+    pulseDot.Text = "(o)"
+    pulseDot.TextColor3 = Color3.fromRGB(0, 255, 150)
+    pulseDot.TextSize = 13
+    pulseDot.Size = UDim2.new(0, 22, 1, 0)
+    pulseDot.Position = UDim2.new(0, 6, 0, 0)
+    pulseDot.BackgroundTransparency = 1
+    pulseDot.Font = Enum.Font.GothamBold
+    pulseDot.Parent = header
+
+    -- Title: unziphub
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Text = "unziphub"
+    title.TextColor3 = Color3.fromRGB(240, 245, 255)
+    title.TextSize = 12
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Size = UDim2.new(1, -65, 1, 0)
+    title.Position = UDim2.new(0, 28, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Parent = header
+
+    -- Minimize Button
+    local minBtn = Instance.new("TextButton")
+    minBtn.Name = "MinBtn"
+    minBtn.Text = "-"
+    minBtn.TextColor3 = Color3.fromRGB(200, 210, 230)
+    minBtn.TextSize = 14
+    minBtn.Font = Enum.Font.GothamBold
+    minBtn.Size = UDim2.new(0, 24, 0, 22)
+    minBtn.Position = UDim2.new(1, -28, 0, 5)
+    minBtn.BackgroundColor3 = Color3.fromRGB(35, 42, 60)
+    minBtn.BorderSizePixel = 0
+    minBtn.Parent = header
+
+    local minCorner = Instance.new("UICorner")
+    minCorner.CornerRadius = UDim.new(0, 6)
+    minCorner.Parent = minBtn
+
+    -- Body Container
+    local body = Instance.new("Frame")
+    body.Name = "Body"
+    body.Size = UDim2.new(1, -16, 1, -38)
+    body.Position = UDim2.new(0, 8, 0, 34)
+    body.BackgroundTransparency = 1
+    body.Parent = mainFrame
+
+    -- Stage Tag (Level Farm / Fight Style / Sword / Accs)
+    local stageTag = Instance.new("TextLabel")
+    stageTag.Name = "StageTag"
+    stageTag.Text = "[STAGE 1/4] LEVEL FARMING"
+    stageTag.TextColor3 = Color3.fromRGB(0, 240, 180)
+    stageTag.TextSize = 10
+    stageTag.Font = Enum.Font.GothamBold
+    stageTag.TextXAlignment = Enum.TextXAlignment.Left
+    stageTag.Size = UDim2.new(1, 0, 0, 14)
+    stageTag.Position = UDim2.new(0, 0, 0, 0)
+    stageTag.BackgroundTransparency = 1
+    stageTag.Parent = body
+
+    -- Current Action / Target Detail
+    local actionLabel = Instance.new("TextLabel")
+    actionLabel.Name = "ActionLabel"
+    actionLabel.Text = "Initializing bot..."
+    actionLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    actionLabel.TextSize = 10.5
+    actionLabel.Font = Enum.Font.GothamMedium
+    actionLabel.TextXAlignment = Enum.TextXAlignment.Left
+    actionLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    actionLabel.Size = UDim2.new(1, 0, 0, 16)
+    actionLabel.Position = UDim2.new(0, 0, 0, 14)
+    actionLabel.BackgroundTransparency = 1
+    actionLabel.Parent = body
+
+    -- Target HP Bar Background
+    local hpBg = Instance.new("Frame")
+    hpBg.Name = "HpBg"
+    hpBg.Size = UDim2.new(1, 0, 0, 13)
+    hpBg.Position = UDim2.new(0, 0, 0, 32)
+    hpBg.BackgroundColor3 = Color3.fromRGB(25, 30, 45)
+    hpBg.BackgroundTransparency = 0.5
+    hpBg.BorderSizePixel = 0
+    hpBg.Parent = body
+
+    local hpCorner = Instance.new("UICorner")
+    hpCorner.CornerRadius = UDim.new(0, 5)
+    hpCorner.Parent = hpBg
+
+    local hpFill = Instance.new("Frame")
+    hpFill.Name = "HpFill"
+    hpFill.Size = UDim2.new(1, 0, 1, 0)
+    hpFill.BackgroundColor3 = Color3.fromRGB(0, 220, 130)
+    hpFill.BorderSizePixel = 0
+    hpFill.Parent = hpBg
+
+    local hpFillCorner = Instance.new("UICorner")
+    hpFillCorner.CornerRadius = UDim.new(0, 5)
+    hpFillCorner.Parent = hpFill
+
+    local hpText = Instance.new("TextLabel")
+    hpText.Name = "HpText"
+    hpText.Text = "Target: None"
+    hpText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hpText.TextSize = 8.5
+    hpText.Font = Enum.Font.GothamBold
+    hpText.Size = UDim2.new(1, 0, 1, 0)
+    hpText.BackgroundTransparency = 1
+    hpText.Parent = hpBg
+
+    -- Divider Line
+    local div = Instance.new("Frame")
+    div.Name = "Div"
+    div.Size = UDim2.new(1, 0, 0, 1)
+    div.Position = UDim2.new(0, 0, 0, 50)
+    div.BackgroundColor3 = Color3.fromRGB(70, 85, 120)
+    div.BackgroundTransparency = 0.5
+    div.BorderSizePixel = 0
+    div.Parent = body
+
+    -- Player Level & Auto Stat Info
+    local levelStatLabel = Instance.new("TextLabel")
+    levelStatLabel.Name = "LevelStatLabel"
+    levelStatLabel.Text = "Level: 1 / 2400 | Stats: Melee & Health (Auto)"
+    levelStatLabel.TextColor3 = Color3.fromRGB(200, 215, 240)
+    levelStatLabel.TextSize = 9.5
+    levelStatLabel.Font = Enum.Font.Gotham
+    levelStatLabel.TextXAlignment = Enum.TextXAlignment.Left
+    levelStatLabel.Size = UDim2.new(1, 0, 0, 14)
+    levelStatLabel.Position = UDim2.new(0, 0, 0, 55)
+    levelStatLabel.BackgroundTransparency = 1
+    levelStatLabel.Parent = body
+
+    -- Money & Gems
+    local currencyLabel = Instance.new("TextLabel")
+    currencyLabel.Name = "CurrencyLabel"
+    currencyLabel.Text = "$0 Cash | 0 Gems"
+    currencyLabel.TextColor3 = Color3.fromRGB(255, 215, 80)
+    currencyLabel.TextSize = 9.5
+    currencyLabel.Font = Enum.Font.GothamBold
+    currencyLabel.TextXAlignment = Enum.TextXAlignment.Left
+    currencyLabel.Size = UDim2.new(1, 0, 0, 14)
+    currencyLabel.Position = UDim2.new(0, 0, 0, 71)
+    currencyLabel.BackgroundTransparency = 1
+    currencyLabel.Parent = body
+
+    -- Sword Status (have sword Banana or not, Popcat, Floppa, etc.)
+    local swordStatusLabel = Instance.new("TextLabel")
+    swordStatusLabel.Name = "SwordStatusLabel"
+    swordStatusLabel.Text = "Sword Banana: NO | Popcat: NO | Floppa: NO (0/10)"
+    swordStatusLabel.TextColor3 = Color3.fromRGB(120, 220, 255)
+    swordStatusLabel.TextSize = 9.5
+    swordStatusLabel.Font = Enum.Font.GothamMedium
+    swordStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    swordStatusLabel.Size = UDim2.new(1, 0, 0, 15)
+    swordStatusLabel.Position = UDim2.new(0, 0, 0, 88)
+    swordStatusLabel.BackgroundTransparency = 1
+    swordStatusLabel.Parent = body
+
+    -- Accessory Status (have accessory or not)
+    local accStatusLabel = Instance.new("TextLabel")
+    accStatusLabel.Name = "AccStatusLabel"
+    accStatusLabel.Text = "Acc Pumpkin Head: NO | Noob: NO | Sus: NO (0/10)"
+    accStatusLabel.TextColor3 = Color3.fromRGB(255, 170, 220)
+    accStatusLabel.TextSize = 9.5
+    accStatusLabel.Font = Enum.Font.GothamMedium
+    accStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    accStatusLabel.Size = UDim2.new(1, 0, 0, 15)
+    accStatusLabel.Position = UDim2.new(0, 0, 0, 105)
+    accStatusLabel.BackgroundTransparency = 1
+    accStatusLabel.Parent = body
+
+    -- Fight Style Status (Baller)
+    local progressLabel = Instance.new("TextLabel")
+    progressLabel.Name = "ProgressLabel"
+    progressLabel.Text = "Fight Style Baller: NO"
+    progressLabel.TextColor3 = Color3.fromRGB(160, 230, 160)
+    progressLabel.TextSize = 9.5
+    progressLabel.Font = Enum.Font.GothamBold
+    progressLabel.TextXAlignment = Enum.TextXAlignment.Left
+    progressLabel.Size = UDim2.new(1, 0, 0, 15)
+    progressLabel.Position = UDim2.new(0, 0, 0, 122)
+    progressLabel.BackgroundTransparency = 1
+    progressLabel.Parent = body
+
+    -- Extra Status Banner
+    local banner = Instance.new("TextLabel")
+    banner.Name = "Banner"
+    banner.Text = "unziphub | Aura & Instinct: ON | Anti-AFK: ON"
+    banner.TextColor3 = Color3.fromRGB(120, 145, 185)
+    banner.TextSize = 8.5
+    banner.Font = Enum.Font.Gotham
+    banner.TextXAlignment = Enum.TextXAlignment.Left
+    banner.Size = UDim2.new(1, 0, 0, 13)
+    banner.Position = UDim2.new(0, 0, 0, 139)
+    banner.BackgroundTransparency = 1
+    banner.Parent = body
+
+    -- Minimize Toggle Logic
+    local isMinimized = false
+    minBtn.MouseButton1Click:Connect(function()
+        isMinimized = not isMinimized
+        if isMinimized then
+            body.Visible = false
+            mainFrame.Size = UDim2.new(0, 220, 0, 32)
+            minBtn.Text = "+"
+        else
+            body.Visible = true
+            mainFrame.Size = UDim2.new(0, 360, 0, 225)
+            minBtn.Text = "-"
+        end
+    end)
+
+    StatusGui = screenGui
+    StatusElements = {
+        MainFrame = mainFrame,
+        StageTag = stageTag,
+        ActionLabel = actionLabel,
+        HpFill = hpFill,
+        HpText = hpText,
+        LevelStatLabel = levelStatLabel,
+        CurrencyLabel = currencyLabel,
+        SwordStatusLabel = swordStatusLabel,
+        AccStatusLabel = accStatusLabel,
+        ProgressLabel = progressLabel,
+        PulseDot = pulseDot
+    }
+end
+
+createStatusGui()
+
+-- Pulse dot animation
+task.spawn(function()
+    while true do
+        pcall(function()
+            if StatusElements.PulseDot and StatusElements.PulseDot.Parent then
+                StatusElements.PulseDot.TextTransparency = 0.1
+                task.wait(0.5)
+                StatusElements.PulseDot.TextTransparency = 0.7
+                task.wait(0.5)
+            end
+        end)
+        task.wait(0.1)
+    end
+end)
+
+local current_target_mob = nil
+local current_status_text = "Starting Bot..."
+local current_stage_tag = "[STAGE 1/4] LEVEL FARMING"
+
+local function set_status(actionText, stageText)
+    if actionText then current_status_text = actionText end
+    if stageText then current_stage_tag = stageText end
+end
+
+-- ========================================================================
+-- INVENTORY & PLAYER UTILITIES
+-- ========================================================================
+local function get_level()
+    local playerData = localPlayer:FindFirstChild("PlayerData") or localPlayer:FindFirstChild("leaderstats")
+    if playerData and playerData:FindFirstChild("Level") then
+        return tonumber(playerData.Level.Value) or 1
+    end
+    local lvl_val = localPlayer:FindFirstChild("Level", true)
+    if lvl_val and lvl_val:IsA("ValueBase") then
+        return tonumber(lvl_val.Value) or 1
+    end
+    return 1
+end
+
+local function get_player_money()
+    local pData = localPlayer:FindFirstChild("PlayerData") or localPlayer:FindFirstChild("leaderstats")
+    if pData then
+        local moneyVal = pData:FindFirstChild("Money") or pData:FindFirstChild("Beli")
+        if moneyVal then return tonumber(moneyVal.Value) or 0 end
+    end
+    return 0
+end
+
+local function get_player_gems()
+    local pData = localPlayer:FindFirstChild("PlayerData") or localPlayer:FindFirstChild("leaderstats")
+    if pData then
+        local gemVal = pData:FindFirstChild("Gem") or pData:FindFirstChild("Gems")
+        if gemVal then return tonumber(gemVal.Value) or 0 end
+    end
+    return 0
+end
+
+local function get_item_count(item_name)
+    local items = localPlayer:FindFirstChild("Items")
+    local itemStorage = items and items:FindFirstChild("ItemStorage")
+    if not itemStorage then return 0 end
+
+    local target_lower = string.lower(item_name)
+    for _, item in ipairs(itemStorage:GetChildren()) do
+        local item_name_lower = string.lower(item.Name)
+        if item_name_lower == target_lower or string.find(item_name_lower, target_lower, 1, true) then
+            local success, val = pcall(function() return item.Value end)
+            if success and val ~= nil then
+                local num = tonumber(val)
+                if num ~= nil then return num end
+            end
+            for _, child_name in ipairs({"Value", "Amount", "Count", "Quantity"}) do
+                local child = item:FindFirstChild(child_name)
+                if child and child:IsA("ValueBase") then
+                    local num = tonumber(child.Value)
+                    if num ~= nil then return num end
+                end
+            end
+            return 1
+        end
+    end
+    return 0
+end
+
+local function has_valid_item(item_name)
+    return get_item_count(item_name) > 0
+end
+
+local function has_weapon(weapon_name)
+    local items = localPlayer:FindFirstChild("Items")
+    local weaponFolder = items and items:FindFirstChild("Weapon")
+    if not weaponFolder then return false end
+
+    local target_lower = string.lower(weapon_name)
+    for _, item in ipairs(weaponFolder:GetChildren()) do
+        local item_lower = string.lower(item.Name)
+        if item_lower == target_lower or string.find(item_lower, target_lower, 1, true) then
+            local success, val = pcall(function() return item.Value end)
+            if success and val ~= nil then
+                local num = tonumber(val)
+                if num ~= nil then return num >= 1 end
+            end
+            return true
+        end
+    end
+    return false
+end
+
+local function has_baller()
+    local success, val = pcall(function()
+        return game:GetService("Players").LocalPlayer.Items.FightingStyle.Baller.Value
+    end)
+    if success and (val == true or val == 1) then return true end
+
+    local items = localPlayer:FindFirstChild("Items")
+    local fs = items and items:FindFirstChild("FightingStyle")
+    local bVal = fs and fs:FindFirstChild("Baller")
+    if bVal and (bVal.Value == true or bVal.Value == 1) then return true end
+
+    if has_weapon("Baller") then return true end
+    if localPlayer:FindFirstChild("Backpack") and localPlayer.Backpack:FindFirstChild("Baller") then return true end
+    if localPlayer.Character and localPlayer.Character:FindFirstChild("Baller") then return true end
+    return false
+end
+
+local function has_accessory(acc_name)
+    local success, val = pcall(function()
+        return game:GetService("Players").LocalPlayer.Items.Accessory[acc_name].Value
+    end)
+    if success and val ~= nil then
+        local num = tonumber(val)
+        if num and num > 0 then return true end
+        if typeof(val) == "boolean" and val == true then return true end
+    end
+
+    local items = localPlayer:FindFirstChild("Items")
+    local accFolder = items and items:FindFirstChild("Accessory")
+    if accFolder then
+        local direct = accFolder:FindFirstChild(acc_name)
+        if direct and direct:IsA("ValueBase") then
+            local num = tonumber(direct.Value)
+            if num and num > 0 then return true end
+            if typeof(direct.Value) == "boolean" and direct.Value == true then return true end
+        end
+        local target_lower = string.lower(acc_name)
+        for _, item in ipairs(accFolder:GetChildren()) do
+            local item_lower = string.lower(item.Name)
+            if item_lower == target_lower or string.find(item_lower, target_lower, 1, true) then
+                if item:IsA("ValueBase") then
+                    local num = tonumber(item.Value)
+                    if num and num > 0 then return true end
+                    if typeof(item.Value) == "boolean" and item.Value == true then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- ========================================================================
+-- MOVEMENT, PLATFORM & ATTACK MECHANICS
+-- ========================================================================
+local current_tween = nil
+local farmAirPlatform = nil
+
+local function remove_farm_platform()
+    if farmAirPlatform then
+        pcall(function() farmAirPlatform:Destroy() end)
+        farmAirPlatform = nil
+    end
+    local oldPlat = workspace:FindFirstChild("HeadlessAirPlatform")
+    if oldPlat then pcall(function() oldPlat:Destroy() end) end
+end
+
+local function get_or_create_farm_platform(root)
+    root = root or (localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart"))
+    if not root then return nil end
+    if not farmAirPlatform or not farmAirPlatform.Parent then
+        local plat = Instance.new("Part")
+        plat.Name = "HeadlessAirPlatform"
+        plat.Size = Vector3.new(10, 1, 10)
+        plat.Anchored = true
+        plat.CanCollide = true
+        plat.Transparency = 1
+        plat.Material = Enum.Material.SmoothPlastic
+        pcall(function() plat.Parent = workspace end)
+        farmAirPlatform = plat
+    end
+    farmAirPlatform.CFrame = root.CFrame * CFrame.new(0, -3.5, 0)
+    return farmAirPlatform
+end
+
+local function unanchor_character(char)
+    char = char or localPlayer.Character
+    if not char or Frozen then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Anchored then
+            part.Anchored = false
+        end
+    end
+end
+
+local function lock_in_place(root)
+    local char = localPlayer.Character
+    unanchor_character(char)
+    root = root or (char and char:FindFirstChild("HumanoidRootPart"))
+    if not root then return end
+    root.Anchored = false
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+    get_or_create_farm_platform(root)
+    local bv = root:FindFirstChild("HeadlessFreezeVelocity")
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "HeadlessFreezeVelocity"
+        bv.Velocity = Vector3.zero
+        bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bv.Parent = root
+    end
+end
+
+local function cancel_tween()
+    if current_tween then
+        current_tween:Cancel()
+        current_tween = nil
+    end
+end
+
+local function unlock_position(root)
+    cancel_tween()
+    remove_farm_platform()
+    local char = localPlayer.Character
+    unanchor_character(char)
+    root = root or (char and char:FindFirstChild("HumanoidRootPart"))
+    if root then
+        root.Anchored = false
+        local bv = root:FindFirstChild("HeadlessFreezeVelocity")
+        if bv then bv:Destroy() end
+    end
+end
+
+local function set_noclip(character, state)
+    if not character then return end
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not state
+        end
+    end
+end
+
+local function move_to_target(character, root, target_cframe)
+    if not (character and root) then return end
+    unanchor_character(character)
+    unlock_position(root)
+    root.Anchored = false
+    if Config.MovementMode == "Tween" then
+        local distance = (root.Position - target_cframe.Position).Magnitude
+        local duration = math.clamp(distance / math.max(Config.TweenSpeed, 10), 0.05, 30)
+        local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+        set_noclip(character, true)
+        current_tween = TweenService:Create(root, tweenInfo, { CFrame = target_cframe })
+        current_tween:Play()
+        current_tween.Completed:Wait()
+        current_tween = nil
+        set_noclip(character, false)
+    else
+        character:PivotTo(target_cframe)
+        root.CFrame = target_cframe
+    end
+    unanchor_character(character)
+    root.Anchored = false
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+end
+
+-- Island Teleports with cooldown
+local function teleport_to_island(character, root, cf, key)
+    if os.clock() - (TeleportCooldowns[key] or 0) < 1.5 then return false end
+    TeleportCooldowns[key] = os.clock()
+    move_to_target(character, root, cf)
+    return true
+end
+
+local function get_monster_folder()
+    return workspace:FindFirstChild("Monster")
+end
+
+local function get_targets(target_name)
+    local targets = {}
+    local mon_folder = get_monster_folder()
+    if not mon_folder then return targets end
+    for _, monster in ipairs(mon_folder:GetChildren()) do
+        local root = monster:FindFirstChild("HumanoidRootPart")
+        local humanoid = monster:FindFirstChildOfClass("Humanoid")
+        if root and humanoid and humanoid.Health > 0 and monster.Name == target_name then
+            table.insert(targets, monster)
+        end
+    end
+    return targets
+end
+
+local function get_boss_or_targets(boss_name)
+    local targets = get_targets(boss_name)
+    if #targets > 0 then return targets end
+    local name_lower = string.lower(boss_name)
+    local mon_folder = get_monster_folder()
+    if mon_folder then
+        for _, monster in ipairs(mon_folder:GetChildren()) do
+            local m_lower = string.lower(monster.Name)
+            if m_lower == name_lower or string.find(m_lower, name_lower, 1, true) then
+                local root = monster:FindFirstChild("HumanoidRootPart")
+                local humanoid = monster:FindFirstChildOfClass("Humanoid")
+                if root and humanoid and humanoid.Health > 0 then
+                    table.insert(targets, monster)
+                end
+            end
+        end
+    end
+    return targets
+end
+
+local function is_melee(tool)
+    if not (tool and tool:IsA("Tool")) then return false end
+    local lowerName = string.lower(tool.Name)
+    return lowerName == "combat" or lowerName == "baller"
+end
+
+local function is_sword(tool)
+    if not (tool and tool:IsA("Tool")) then return false end
+    local lowerName = string.lower(tool.Name)
+    if is_melee(tool) then return false end
+    if string.find(lowerName, "blade") or string.find(lowerName, "sword")
+        or string.find(lowerName, "katana") or string.find(lowerName, "hammer")
+        or string.find(lowerName, "hanger") or string.find(lowerName, "banana") then
+        return true
+    end
+    return false
+end
+
+local function equip_weapon()
+    local character = localPlayer.Character
+    if not character then return nil end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local backpack = localPlayer:FindFirstChildOfClass("Backpack")
+    if not humanoid then return nil end
+
+    -- Check currently equipped
+    for _, item in ipairs(character:GetChildren()) do
+        if is_melee(item) or is_sword(item) then
+            return item
+        end
+    end
+
+    -- Equip from backpack
+    if backpack then
+        -- Prefer Melee
+        for _, item in ipairs(backpack:GetChildren()) do
+            if is_melee(item) then
+                humanoid:EquipTool(item)
+                return item
+            end
+        end
+        -- Fallback to Sword
+        for _, item in ipairs(backpack:GetChildren()) do
+            if is_sword(item) then
+                humanoid:EquipTool(item)
+                return item
+            end
+        end
+        -- Fallback to any tool
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                humanoid:EquipTool(item)
+                return item
+            end
+        end
+    end
+
+    return character:FindFirstChildOfClass("Tool")
+end
+
+local function auto_attack(weapon)
+    if weapon and weapon:IsA("Tool") then
+        pcall(function() weapon:Activate() end)
+    end
+end
+
+local auto_skill_cooldowns = {}
+local function execute_skills(character, target_pos)
+    local tool = character and character:FindFirstChildOfClass("Tool")
+    if not tool then return end
+    local toolName = tool.Name
+
+    local skillEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+        and ReplicatedStorage.OtherEvent:FindFirstChild("SkillEvents")
+        and ReplicatedStorage.OtherEvent.SkillEvents:FindFirstChild("Server_Skills")
+
+    if not (skillEvent and skillEvent:IsA("RemoteEvent")) then return end
+    if auto_skill_cooldowns._busy then return end
+    auto_skill_cooldowns._busy = true
+
+    task.spawn(function()
+        pcall(function()
+            for _, key in ipairs({"Z", "X"}) do
+                local cdKey = toolName .. "_" .. key
+                if os.clock() - (auto_skill_cooldowns[cdKey] or 0) >= 0.4 then
+                    auto_skill_cooldowns[cdKey] = os.clock()
+                    skillEvent:FireServer(character, toolName, key, "Hold")
+                    task.wait(0.08)
+                    skillEvent:FireServer(character, toolName, key, "Release", target_pos and { Mouse_Position = target_pos, Hit_Position = target_pos } or nil)
+                end
+            end
+        end)
+        auto_skill_cooldowns._busy = false
+    end)
+end
+
+local function trigger_race_v2()
+    if not Config.AutoUseRaceV2 then return end
+    local movementRemote = ReplicatedStorage:FindFirstChild("OtherEvent")
+        and ReplicatedStorage.OtherEvent:FindFirstChild("SkillEvents")
+        and ReplicatedStorage.OtherEvent.SkillEvents:FindFirstChild("Movement")
+    if movementRemote and movementRemote:IsA("RemoteEvent") then
+        pcall(function() movementRemote:FireServer("RaceSkill") end)
+    end
+end
+
+local combat_state = {
+    target_mob = nil,
+    target_health = nil,
+    last_hit_time = os.clock(),
+    last_player_health = nil,
+    player_hit_count = 0,
+    anti_hit_extra_z = 0,
+    anti_hit_extra_y = 0,
+    adaptive_offset_x = 0,
+    reposition_stage = 0
+}
+
+local function get_mob_hitbox_info(monster)
+    if not monster then return 5, false end
+    local maxDim = 5
+    pcall(function()
+        if monster:IsA("Model") then
+            local extents = monster:GetExtentsSize()
+            maxDim = math.max(extents.X, extents.Y, extents.Z)
+        end
+    end)
+    local root = monster:FindFirstChild("HumanoidRootPart")
+    if root and root:IsA("BasePart") then
+        local rootDim = math.max(root.Size.X, root.Size.Y, root.Size.Z)
+        if rootDim > maxDim then
+            maxDim = rootDim
+        end
+    end
+    local hb = monster:FindFirstChild("Hitbox") or monster:FindFirstChild("AttackHitbox")
+    if hb and hb:IsA("BasePart") then
+        local hbDim = math.max(hb.Size.X, hb.Size.Y, hb.Size.Z)
+        if hbDim > maxDim then
+            maxDim = hbDim
+        end
+    end
+    local nameLower = string.lower(monster.Name)
+    if string.find(nameLower, "pumpkin") or string.find(nameLower, "lord sus")
+        or string.find(nameLower, "evil noob") or string.find(nameLower, "gorilla king")
+        or string.find(nameLower, "meme beast") or string.find(nameLower, "gigachad")
+        or string.find(nameLower, "mrbeast") or string.find(nameLower, "big floppa") then
+        if maxDim < 10 then
+            maxDim = 12
+        end
+    end
+    local isBig = (maxDim >= 8)
+    return maxDim, isBig
+end
+
+local function attack_monster_list(character, player_root, monsters)
+    unanchor_character(character)
+    if #monsters == 0 then
+        current_target_mob = nil
+        combat_state.target_mob = nil
+        combat_state.target_health = nil
+        combat_state.last_player_health = nil
+        combat_state.player_hit_count = 0
+        combat_state.anti_hit_extra_z = 0
+        combat_state.anti_hit_extra_y = 0
+        combat_state.adaptive_offset_x = 0
+        combat_state.reposition_stage = 0
+        return
+    end
+
+    local first_mob = monsters[1]
+    current_target_mob = first_mob
+    local first_mob_root = first_mob:FindFirstChild("HumanoidRootPart")
+    local first_mob_hum = first_mob:FindFirstChildOfClass("Humanoid")
+    local player_hum = character:FindFirstChildOfClass("Humanoid")
+
+    -- 1. Check if target hitbox is big -> make target always a little farther
+    local maxDim, isBig = get_mob_hitbox_info(first_mob)
+    local big_extra_z = isBig and math.clamp(maxDim * 0.45, 3.5, 9) or 0
+    local big_extra_y = isBig and math.clamp(maxDim * 0.25, 1.5, 5) or 0
+
+    -- 2. Check player hit count: need to be hit 4 times then make monster offset far always a little, if got hit again make far a little more
+    if player_hum and player_hum.Health > 0 then
+        local current_p_health = player_hum.Health
+        if combat_state.last_player_health and current_p_health < combat_state.last_player_health then
+            -- Player took damage from monster!
+            combat_state.player_hit_count = (combat_state.player_hit_count or 0) + 1
+
+            if combat_state.player_hit_count == 4 then
+                -- Hit 4 times: make monster offset far always a little
+                combat_state.anti_hit_extra_z = 2.5
+                combat_state.anti_hit_extra_y = 1.5
+            elseif combat_state.player_hit_count > 4 then
+                -- If got hit again: make far a little more each time
+                combat_state.anti_hit_extra_z = math.min((combat_state.anti_hit_extra_z or 2.5) + 1.5, 10)
+                combat_state.anti_hit_extra_y = math.min((combat_state.anti_hit_extra_y or 1.5) + 1.0, 7)
+            end
+        end
+        combat_state.last_player_health = current_p_health
+    end
+
+    -- 3. Check if player cannot hit target in 5 seconds -> change pos so I can hit
+    if first_mob_hum and first_mob_hum.Health > 0 then
+        local current_m_health = first_mob_hum.Health
+        if combat_state.target_mob ~= first_mob then
+            combat_state.target_mob = first_mob
+            combat_state.target_health = current_m_health
+            combat_state.last_hit_time = os.clock()
+            combat_state.player_hit_count = 0
+            combat_state.anti_hit_extra_z = 0
+            combat_state.anti_hit_extra_y = 0
+            combat_state.adaptive_offset_x = 0
+            combat_state.reposition_stage = 0
+        else
+            if current_m_health < (combat_state.target_health or current_m_health) then
+                -- Hit registered! Reset 5-second timer
+                combat_state.target_health = current_m_health
+                combat_state.last_hit_time = os.clock()
+            else
+                local time_without_hit = os.clock() - (combat_state.last_hit_time or os.clock())
+                if time_without_hit >= 5 then
+                    combat_state.reposition_stage = ((combat_state.reposition_stage or 0) + 1) % 4
+                    combat_state.last_hit_time = os.clock()
+
+                    if combat_state.reposition_stage == 1 then
+                        combat_state.anti_hit_extra_z = math.max(0, (combat_state.anti_hit_extra_z or 0) - 4)
+                        combat_state.anti_hit_extra_y = math.max(0, (combat_state.anti_hit_extra_y or 0) - 2)
+                        combat_state.adaptive_offset_x = 0
+                    elseif combat_state.reposition_stage == 2 then
+                        combat_state.anti_hit_extra_z = 0
+                        combat_state.anti_hit_extra_y = 1
+                        combat_state.adaptive_offset_x = 2.5
+                    elseif combat_state.reposition_stage == 3 then
+                        combat_state.anti_hit_extra_z = 0
+                        combat_state.anti_hit_extra_y = 1
+                        combat_state.adaptive_offset_x = -2.5
+                    else
+                        combat_state.anti_hit_extra_z = 0
+                        combat_state.anti_hit_extra_y = 0
+                        combat_state.adaptive_offset_x = 0
+                    end
+
+                    if first_mob_root then
+                        player_root.CFrame = first_mob_root.CFrame * CFrame.new(0, 6, 7)
+                    end
+                end
+            end
+        end
+    end
+
+    if first_mob_root then
+        local distance = (player_root.Position - first_mob_root.Position).Magnitude
+        if distance > 25 then
+            move_to_target(character, player_root, first_mob_root.CFrame * CFrame.new(Config.PlayerX, Config.PlayerY, Config.PlayerZ))
+            task.wait(0.12)
+        end
+    end
+
+    lock_in_place(player_root)
+    local weapon = equip_weapon()
+
+    -- Calculate safe target position with dynamic offsets
+    local target_x = Config.MobDistanceX + (combat_state.adaptive_offset_x or 0)
+    local target_y = Config.MobDistanceY + big_extra_y + (combat_state.anti_hit_extra_y or 0)
+    local target_z = Config.MobDistanceZ - big_extra_z - (combat_state.anti_hit_extra_z or 0)
+
+    local safe_target_cframe = player_root.CFrame
+        * CFrame.new(target_x, target_y, target_z)
+        * CFrame.Angles(0, math.rad(180), 0)
+
+    -- Bring & freeze mobs
+    for _, monster in ipairs(monsters) do
+        local mon_root = monster:FindFirstChild("HumanoidRootPart")
+        local mon_humanoid = monster:FindFirstChildOfClass("Humanoid")
+        if mon_root and mon_humanoid and mon_humanoid.Health > 0 then
+            mon_humanoid.PlatformStand = true
+            for _, descendant in ipairs(monster:GetDescendants()) do
+                if descendant:IsA("BasePart") then
+                    descendant.CanCollide = false
+                    descendant.CanTouch = false
+                end
+            end
+            mon_root.CFrame = safe_target_cframe
+            mon_root.AssemblyLinearVelocity = Vector3.zero
+            mon_root.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+
+    auto_attack(weapon)
+    if first_mob_root then
+        execute_skills(character, first_mob_root.Position)
+    end
+    trigger_race_v2()
+end
+
+-- ========================================================================
+-- BOSS SUMMONING HELPERS
+-- ========================================================================
+local function get_pumpkin_summon()
+    local island = workspace:FindFirstChild("Island")
+    local pumpkinIsland = island and island:FindFirstChild("PumpkinIsland")
+    local summon1 = pumpkinIsland and pumpkinIsland:FindFirstChild("Summon1")
+    return summon1 and summon1:FindFirstChild("Summon")
+end
+
+local function get_noob_summon()
+    local island = workspace:FindFirstChild("Island")
+    local moaiIsland = island and island:FindFirstChild("MoaiIsland")
+    local summon2 = moaiIsland and moaiIsland:FindFirstChild("Summon2")
+    return summon2 and summon2:FindFirstChild("Summon")
+end
+
+local function get_sus_summon()
+    local island = workspace:FindFirstChild("Island")
+    local forgottenIsland = island and island:FindFirstChild("ForgottenIsland")
+    local summon3 = forgottenIsland and forgottenIsland:FindFirstChild("Summon3")
+    return summon3 and summon3:FindFirstChild("Summon")
+end
+
+local function has_flame_orb()
+    if has_valid_item("Flame Orb") then return true end
+    local items = localPlayer:FindFirstChild("Items")
+    if items then
+        for _, c in ipairs(items:GetChildren()) do
+            if string.find(string.lower(c.Name), "flame orb") then return true end
+        end
+    end
+    local bp = localPlayer:FindFirstChildOfClass("Backpack")
+    if bp then
+        for _, c in ipairs(bp:GetChildren()) do
+            if string.find(string.lower(c.Name), "flame orb") then return true end
+        end
+    end
+    return false
+end
+
+local function has_noob_head()
+    if has_valid_item("Noob Head") or has_valid_item("Noob Orb") then return true end
+    local items = localPlayer:FindFirstChild("Items")
+    if items then
+        for _, c in ipairs(items:GetChildren()) do
+            local nl = string.lower(c.Name)
+            if string.find(nl, "noob head") or string.find(nl, "noob orb") then return true end
+        end
+    end
+    return false
+end
+
+local function has_sussy_orb()
+    if has_valid_item("Sussy Orb") or has_valid_item("Sus Orb") then return true end
+    local items = localPlayer:FindFirstChild("Items")
+    if items then
+        for _, c in ipairs(items:GetChildren()) do
+            local nl = string.lower(c.Name)
+            if string.find(nl, "sussy orb") or string.find(nl, "sus orb") then return true end
+        end
+    end
+    return false
+end
+
+local function trigger_proximity_prompt(prompt)
+    if not prompt then return end
+    if fireproximityprompt then
+        pcall(fireproximityprompt, prompt)
+    else
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration or 0.5)
+            prompt:InputHoldEnd()
+        end)
+    end
+end
+
+local function summon_giant_pumpkin(character, player_root)
+    set_status("Summoning Giant Pumpkin...")
+    unlock_position(player_root)
+    local bp = localPlayer:FindFirstChildOfClass("Backpack")
+    local hum = character:FindFirstChildOfClass("Humanoid")
+    if bp and hum then
+        local orbTool = bp:FindFirstChild("Flame Orb")
+        if orbTool then pcall(function() hum:EquipTool(orbTool) end) end
+    end
+    local summonPart = get_pumpkin_summon()
+    local statuePos = (summonPart and summonPart:IsA("BasePart")) and (summonPart.CFrame * CFrame.new(0, 3, 0)) or CFrame.new(-1182, -90, 1457)
+    move_to_target(character, player_root, statuePos)
+    task.wait(0.3)
+    local prompt = summonPart and summonPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then trigger_proximity_prompt(prompt) end
+    task.wait(0.5)
+end
+
+local function summon_evil_noob(character, player_root)
+    set_status("Summoning Evil Noob...")
+    unlock_position(player_root)
+    local bp = localPlayer:FindFirstChildOfClass("Backpack")
+    local hum = character:FindFirstChildOfClass("Humanoid")
+    if bp and hum then
+        local noobTool = bp:FindFirstChild("Noob Head") or bp:FindFirstChild("Noob Orb")
+        if noobTool then pcall(function() hum:EquipTool(noobTool) end) end
+    end
+    local summonPart = get_noob_summon()
+    local statuePos = (summonPart and summonPart:IsA("BasePart")) and (summonPart.CFrame * CFrame.new(0, 3, 0)) or CFrame.new(-2356, -80, 3178)
+    move_to_target(character, player_root, statuePos)
+    task.wait(0.3)
+    local prompt = summonPart and summonPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then trigger_proximity_prompt(prompt) end
+    task.wait(0.5)
+    move_to_target(character, player_root, CFrame.new(3360, -52, 4589))
+end
+
+local function summon_lord_sus(character, player_root)
+    set_status("Summoning Lord Sus...")
+    unlock_position(player_root)
+    local bp = localPlayer:FindFirstChildOfClass("Backpack")
+    local hum = character:FindFirstChildOfClass("Humanoid")
+    if bp and hum then
+        local orbTool = bp:FindFirstChild("Sussy Orb") or bp:FindFirstChild("Sus Orb")
+        if orbTool then pcall(function() hum:EquipTool(orbTool) end) end
+    end
+    local summonPart = get_sus_summon()
+    local statuePos = (summonPart and summonPart:IsA("BasePart")) and (summonPart.CFrame * CFrame.new(0, 3, 0)) or CFrame.new(6581, -92, 4729)
+    move_to_target(character, player_root, statuePos)
+    task.wait(0.3)
+    local prompt = summonPart and summonPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then trigger_proximity_prompt(prompt) end
+    task.wait(0.5)
+end
+
+-- ========================================================================
+-- QUEST SYSTEM
+-- ========================================================================
+local quest_remote = nil
+local last_accepted_quest_num = nil
+local active_tier_num = nil
+local quest_fail_count = 0
+local quest_has_reset = false
+
+local function get_quest_remote()
+    if quest_remote then return quest_remote end
+    local otherEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+    if otherEvent then
+        local questEvents = otherEvent:FindFirstChild("QuestEvents")
+        if questEvents then
+            quest_remote = questEvents:FindFirstChild("Quest")
+        end
+    end
+    return quest_remote
+end
+
+local function has_active_quest()
+    local pGui = localPlayer:FindFirstChild("PlayerGui")
+    if not pGui then return false end
+    local questGui = pGui:FindFirstChild("QuestGui")
+    if not questGui then return false end
+    local holder = questGui:FindFirstChild("Holder")
+    if not holder then return false end
+    local slot1 = holder:FindFirstChild("QuestSlot1")
+    return slot1 and slot1.Visible == true
+end
+
+local function abandon_quest()
+    local remote = get_quest_remote()
+    if remote and remote:IsA("RemoteEvent") then
+        pcall(function() remote:FireServer("Abandon_Quest", { QuestSlot = "QuestSlot1" }) end)
+        pcall(function() remote:FireServer("Abandon_Quest", "QuestSlot1") end)
+    end
+    last_accepted_quest_num = nil
+end
+
+local function get_tier_info(level)
+    for _, tier in ipairs(QUEST_CONFIG) do
+        if level >= tier.minLevel then
+            return tier
+        end
+    end
+    return QUEST_CONFIG[#QUEST_CONFIG]
+end
+
+local function get_quest_island_cframe(tier)
+    if not tier then return Island_CFrames.FLOPPA, "floppa" end
+    local qNum = tier.questNum or 1
+    if qNum <= 6 then
+        return Island_CFrames.FLOPPA, "floppa"
+    elseif qNum <= 12 then
+        return Island_CFrames.SNOW, "snow"
+    elseif qNum <= 15 then
+        return Island_CFrames.NEW_ISLAND, "new_island"
+    elseif qNum <= 19 then
+        return Island_CFrames.THIRD, "third"
+    elseif qNum <= 23 then
+        return Island_CFrames.FOURTH, "fourth"
+    elseif qNum == 24 or qNum == 30 or qNum == 31 then
+        return Island_CFrames.FIFTH, "fifth"
+    elseif qNum >= 25 and qNum <= 28 then
+        return Island_CFrames.SIXTH, "sixth"
+    elseif qNum == 29 then
+        return Island_CFrames.NOOB, "noob"
+    elseif qNum >= 32 and qNum <= 36 then
+        return Island_CFrames.FORGOTTEN, "forgotten"
+    elseif qNum >= 37 and qNum <= 40 then
+        return Island_CFrames.SEVENTH, "seventh"
+    elseif qNum >= 41 and qNum <= 46 then
+        return Island_CFrames.EIGHTH, "eighth"
+    end
+    return Island_CFrames.FLOPPA, "floppa"
+end
+
+local function find_quest_npc(tier)
+    local q_folder = workspace:FindFirstChild("NPCs") and workspace.NPCs:FindFirstChild("Quests_Npc")
+    if not q_folder then return nil end
+    for _, child in ipairs(q_folder:GetChildren()) do
+        local name_lower = string.lower(child.Name)
+        local is_excluded = (tier.questNum == 1 and (
+            string.find(name_lower, "2") or string.find(name_lower, "3") or
+            string.find(name_lower, "golden") or string.find(name_lower, "big")
+        ))
+        if not is_excluded then
+            for _, kw in ipairs(tier.npcKeywords) do
+                if string.find(name_lower, string.lower(kw), 1, true) then
+                    return child
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function take_specific_quest(questNum)
+    if has_active_quest() then
+        quest_fail_count = 0
+        quest_has_reset = false
+        return
+    end
+    for _, tier in ipairs(QUEST_CONFIG) do
+        if tier.questNum == questNum then
+            local character = localPlayer.Character
+            local player_root = character and character:FindFirstChild("HumanoidRootPart")
+            if not (character and player_root) then return end
+            unanchor_character(character)
+            local npc = find_quest_npc(tier)
+            if not npc then
+                if questNum == 6 then
+                    teleport_to_island(character, player_root, Island_CFrames.FLOPPA, "floppa")
+                elseif questNum == 23 then
+                    move_to_target(character, player_root, CFrame.new(-1182, -93, 1457))
+                elseif questNum == 22 then
+                    teleport_to_island(character, player_root, Island_CFrames.FOURTH, "fourth")
+                elseif questNum == 29 then
+                    teleport_to_island(character, player_root, Island_CFrames.NOOB, "noob")
+                elseif questNum == 28 then
+                    teleport_to_island(character, player_root, Island_CFrames.SIXTH, "sixth")
+                elseif questNum == 32 then
+                    teleport_to_island(character, player_root, Island_CFrames.FORGOTTEN, "forgotten")
+                elseif questNum == 31 then
+                    teleport_to_island(character, player_root, Island_CFrames.FIFTH, "fifth")
+                else
+                    local targetIsland, islandKey = get_quest_island_cframe(tier)
+                    teleport_to_island(character, player_root, targetIsland, islandKey)
+                end
+                task.wait(0.5)
+                npc = find_quest_npc(tier)
+            end
+
+            if npc then
+                local npc_root = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+                if npc_root then
+                    move_to_target(character, player_root, npc_root.CFrame * CFrame.new(0, 0, -2))
+                    task.wait(0.25)
+                    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt then trigger_proximity_prompt(prompt) end
+                    local click = npc:FindFirstChildWhichIsA("ClickDetector", true)
+                    if click and fireclickdetector then pcall(fireclickdetector, click) end
+                    local remote = get_quest_remote()
+                    if remote and remote:IsA("RemoteEvent") then
+                        pcall(function() remote:FireServer(npc.Name) end)
+                    end
+                    last_accepted_quest_num = questNum
+                    task.wait(0.5)
+                end
+            end
+            break
+        end
+    end
+end
+
+local function get_quest()
+    local character = localPlayer.Character
+    if not character then return end
+    local player_root = character:FindFirstChild("HumanoidRootPart")
+    if not player_root then return end
+
+    unanchor_character(character)
+
+    if has_active_quest() then
+        quest_fail_count = 0
+        quest_has_reset = false
+        return
+    end
+
+    local level = get_level()
+    local tier = get_tier_info(level)
+    local npc = find_quest_npc(tier)
+
+    -- User requirement: make if not found quest 6 then tp to floppa island
+    if not npc and tier.questNum == 6 then
+        quest_fail_count = quest_fail_count + 1
+        set_status("Quest 6 NPC not found -> Teleporting to Floppa Island...", "[STAGE 1/4]")
+        teleport_to_island(character, player_root, Island_CFrames.FLOPPA, "floppa")
+        task.wait(1)
+        return
+    end
+
+    -- User requirement: add a check if cannot get quest then try to reset character and if still cant get quest then tp to quest island
+    if not npc then
+        quest_fail_count = quest_fail_count + 1
+        if quest_fail_count >= 3 and not quest_has_reset then
+            set_status("Cannot find quest NPC, resetting character...", "[QUEST RECOVERY]")
+            quest_has_reset = true
+            resetPlayer()
+            task.wait(3)
+            return
+        elseif quest_fail_count >= 5 then
+            set_status("Still cannot find quest NPC, TP to quest island...", "[QUEST RECOVERY]")
+            local islandCF, islandKey = get_quest_island_cframe(tier)
+            teleport_to_island(character, player_root, islandCF, islandKey)
+            quest_fail_count = 0
+            quest_has_reset = false
+            task.wait(1)
+            return
+        else
+            local islandCF, islandKey = get_quest_island_cframe(tier)
+            teleport_to_island(character, player_root, islandCF, islandKey)
+            task.wait(1)
+            return
+        end
+    end
+
+    local npc_root = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+    if not npc_root then return end
+
+    move_to_target(character, player_root, npc_root.CFrame * CFrame.new(0, 0, -2))
+    task.wait(0.25)
+    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then trigger_proximity_prompt(prompt) end
+    local click = npc:FindFirstChildWhichIsA("ClickDetector", true)
+    if click and fireclickdetector then pcall(fireclickdetector, click) end
+    local remote = get_quest_remote()
+    if remote and remote:IsA("RemoteEvent") then
+        pcall(function() remote:FireServer(npc.Name) end)
+    end
+    task.wait(0.5)
+
+    -- Check if quest was obtained
+    if has_active_quest() then
+        quest_fail_count = 0
+        quest_has_reset = false
+    else
+        quest_fail_count = quest_fail_count + 1
+        -- User requirement: if cannot get quest then try to reset character and if still cant get quest then tp to quest island
+        if quest_fail_count >= 3 and not quest_has_reset then
+            set_status("Cannot get quest, resetting character...", "[QUEST RECOVERY]")
+            quest_has_reset = true
+            resetPlayer()
+            task.wait(3)
+        elseif quest_fail_count >= 5 then
+            set_status("Still cannot get quest after reset, TP to quest island...", "[QUEST RECOVERY]")
+            local islandCF, islandKey = get_quest_island_cframe(tier)
+            teleport_to_island(character, player_root, islandCF, islandKey)
+            quest_fail_count = 0
+            quest_has_reset = false
+            task.wait(1)
+        end
+    end
+end
+
+-- ========================================================================
+-- STAGE 1: AUTO FARM LEVEL
+-- ========================================================================
+local function farm_level_step(character, player_root)
+    unanchor_character(character)
+    local current_lvl = get_level()
+    local current_tier = get_tier_info(current_lvl)
+
+    -- Special Quest 23 (Giant Pumpkin / Flame Orb / Quest 22 Scary Skull)
+    if current_tier.questNum == 23 or (current_lvl >= 1100 and current_lvl < 1150) then
+        local pumpkinBoss = get_boss_or_targets("Giant Pumpkin")
+        if #pumpkinBoss > 0 then
+            set_status("Killing Giant Pumpkin Boss [Q23]", "[STAGE 1/4] LEVEL FARMING")
+            if not has_active_quest() then take_specific_quest(23) end
+            attack_monster_list(character, player_root, pumpkinBoss)
+            return
+        else
+            if has_flame_orb() then
+                summon_giant_pumpkin(character, player_root)
+                return
+            else
+                set_status("Farming Scary Skull for Flame Orb [Q22]", "[STAGE 1/4] LEVEL FARMING")
+                if not has_active_quest() then take_specific_quest(22) end
+                local skulls = get_targets("Scary Skull")
+                if #skulls > 0 then
+                    attack_monster_list(character, player_root, skulls)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(-1434, -93, 1276))
+                end
+                return
+            end
+        end
+    end
+
+    -- Special Quest 29 (Evil Noob / Noob Head / Quest 28 Moai)
+    if current_tier.questNum == 29 or (current_lvl >= 1400 and current_lvl < 1450) then
+        local evilNoobBoss = get_boss_or_targets("Evil Noob")
+        if #evilNoobBoss > 0 then
+            set_status("Killing Evil Noob Boss [Q29]", "[STAGE 1/4] LEVEL FARMING")
+            if not has_active_quest() then take_specific_quest(29) end
+            attack_monster_list(character, player_root, evilNoobBoss)
+            return
+        else
+            if has_noob_head() then
+                summon_evil_noob(character, player_root)
+                return
+            else
+                set_status("Farming Moai for Noob Head [Q28]", "[STAGE 1/4] LEVEL FARMING")
+                if not has_active_quest() then take_specific_quest(28) end
+                local moais = get_targets("Moai")
+                if #moais > 0 then
+                    attack_monster_list(character, player_root, moais)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(-2687, -81, 3491))
+                end
+                return
+            end
+        end
+    end
+
+    -- Special Quest 32 (Lord Sus / Sussy Orb / Quest 31 Sus Duck)
+    if current_tier.questNum == 32 or (current_lvl >= 1550 and current_lvl < 1700) then
+        local lordSusBoss = get_boss_or_targets("Lord Sus")
+        if #lordSusBoss > 0 then
+            set_status("Killing Lord Sus Boss [Q32]", "[STAGE 1/4] LEVEL FARMING")
+            if not has_active_quest() then take_specific_quest(32) end
+            attack_monster_list(character, player_root, lordSusBoss)
+            return
+        else
+            if has_sussy_orb() then
+                summon_lord_sus(character, player_root)
+                return
+            else
+                set_status("Farming Sus Duck for Sussy Orb [Q31]", "[STAGE 1/4] LEVEL FARMING")
+                if not has_active_quest() then take_specific_quest(31) end
+                local ducks = get_targets("Sus Duck")
+                if #ducks > 0 then
+                    attack_monster_list(character, player_root, ducks)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(1559, -52, 2345))
+                end
+                return
+            end
+        end
+    end
+
+    -- Standard Tier Quest
+    if active_tier_num ~= current_tier.questNum then
+        active_tier_num = current_tier.questNum
+        if has_active_quest() then
+            abandon_quest()
+            unlock_position(player_root)
+            task.wait(0.3)
+        end
+    end
+
+    local target_mob = current_tier.mobName
+    set_status("Farming " .. target_mob .. " [Quest " .. tostring(current_tier.questNum) .. "]", "[STAGE 1/4] LEVEL FARMING")
+
+    if not has_active_quest() then
+        get_quest()
+        return
+    else
+        quest_fail_count = 0
+        quest_has_reset = false
+    end
+
+    local monsters = get_targets(target_mob)
+    if #monsters == 0 then
+        unlock_position(player_root)
+        if current_tier.questNum <= 6 then
+            teleport_to_island(character, player_root, Island_CFrames.FLOPPA, "floppa")
+        elseif current_tier.questNum >= 7 and current_tier.questNum <= 12 and current_lvl >= 300 and current_lvl <= 599 then
+            teleport_to_island(character, player_root, Island_CFrames.SNOW, "snow")
+        end
+        return
+    end
+
+    attack_monster_list(character, player_root, monsters)
+end
+
+-- ========================================================================
+-- STAGE 2: AUTO GET FIGHTING STYLE (BALLER)
+-- ========================================================================
+local function farm_baller_step(character, player_root)
+    if has_baller() then return true end
+
+    local ballCount = get_item_count("Ball")
+    local money = get_player_money()
+
+    if ballCount >= 10 and money >= 10000000 then
+        set_status("Buying Baller Fighting Style...", "[STAGE 2/4] FIGHT STYLE")
+        unlock_position(player_root)
+        move_to_target(character, player_root, CFrame.new(1714, -76, -4730))
+        task.wait(0.5)
+        local sellerEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+            and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+            and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Modules")
+        if sellerEvent then
+            pcall(function() sellerEvent:FireServer("FightingStyle_Teacher", "Baller") end)
+        end
+        task.wait(1)
+        return has_baller()
+    end
+
+    if ballCount < 10 then
+        set_status("Farming Baller for Balls (" .. tostring(ballCount) .. "/10)...", "[STAGE 2/4] FIGHT STYLE")
+        local ballers = get_targets("Baller")
+        if #ballers > 0 then
+            attack_monster_list(character, player_root, ballers)
+        else
+            unlock_position(player_root)
+            local distBaller = (player_root.Position - Vector3.new(1301, -54, -4631)).Magnitude
+            if distBaller > 20 then
+                move_to_target(character, player_root, CFrame.new(1301, -54, -4631))
+            end
+        end
+        return false
+    else
+        -- Need money
+        set_status("Farming Money for Baller ($" .. tostring(money) .. "/$10M)...", "[STAGE 2/4] FIGHT STYLE")
+        farm_level_step(character, player_root)
+        return false
+    end
+end
+
+-- ========================================================================
+-- STAGE 3: AUTO FARM SWORDS
+-- ========================================================================
+local function is_floppa_quest_active()
+    local pGui = localPlayer:FindFirstChild("PlayerGui")
+    if not pGui then return false end
+    local qGui = pGui:FindFirstChild("QuestGui") or pGui:FindFirstChild("Quest_Gui")
+    if not qGui then return false end
+    for _, desc in ipairs(qGui:GetDescendants()) do
+        if desc:IsA("TextLabel") and desc.Text and string.find(string.lower(desc.Text), "floppa") then
+            return true
+        end
+    end
+    return false
+end
+
+local function farm_swords_step(character, player_root)
+    -- Find first unowned sword in list
+    local unownedSword = nil
+    for _, swordName in ipairs(SWORD_LIST) do
+        local owned = has_weapon(swordName)
+        if swordName == "Popcat" and not owned then
+            owned = has_weapon("Ohio Popcat")
+        end
+        if not owned then
+            unownedSword = swordName
+            break
+        end
+    end
+
+    if not unownedSword then
+        return true -- All swords owned!
+    end
+
+    set_status("Farming Sword: " .. unownedSword, "[STAGE 3/4] SWORD FARMING")
+
+    -- 1. Pixel Sword (Obamid drop)
+    if unownedSword == "Pixel Sword" then
+        local obamids = get_targets("Obamid")
+        if #obamids > 0 then
+            attack_monster_list(character, player_root, obamids)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(-494, -61, -3623))
+        end
+        return false
+    end
+
+    -- 2. Pink Hammer (Pink Absorber drop)
+    if unownedSword == "Pink Hammer" then
+        local absorbers = get_targets("Pink Absorber")
+        if #absorbers > 0 then
+            attack_monster_list(character, player_root, absorbers)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(1794, 122, 2993))
+        end
+        return false
+    end
+
+    -- 3. Purple Katana (Lord Sus drop)
+    if unownedSword == "Purple Katana" then
+        local lordSus = get_boss_or_targets("Lord Sus")
+        if #lordSus > 0 then
+            attack_monster_list(character, player_root, lordSus)
+        else
+            if has_sussy_orb() then
+                summon_lord_sus(character, player_root)
+            else
+                local ducks = get_targets("Sus Duck")
+                if #ducks > 0 then
+                    attack_monster_list(character, player_root, ducks)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(1559, -52, 2345))
+                end
+            end
+        end
+        return false
+    end
+
+    -- 4. Pumpkin (Nugget Man buy or Giant Pumpkin drop)
+    if unownedSword == "Pumpkin" then
+        local hasNugget = has_valid_item("Nugget Man")
+        local money = get_player_money()
+        if hasNugget and money >= 3500000 then
+            set_status("Buying Pumpkin Sword from Gravestone...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(-975, -92, 1284))
+            task.wait(0.5)
+            local sellerEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+                and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+                and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Modules")
+            if sellerEvent then
+                pcall(function() sellerEvent:FireServer("Weapon_Seller", "Gravestone") end)
+            end
+            task.wait(1)
+            return false
+        end
+
+        local pumpkinBoss = get_boss_or_targets("Giant Pumpkin")
+        if #pumpkinBoss > 0 then
+            attack_monster_list(character, player_root, pumpkinBoss)
+        else
+            if has_flame_orb() then
+                summon_giant_pumpkin(character, player_root)
+            else
+                local skulls = get_targets("Scary Skull")
+                if #skulls > 0 then
+                    attack_monster_list(character, player_root, skulls)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(-1434, -93, 1276))
+                end
+            end
+        end
+        return false
+    end
+
+    -- 5. Yellow Blade (Evil Noob drop)
+    if unownedSword == "Yellow Blade" then
+        local evilNoobs = get_boss_or_targets("Evil Noob")
+        if #evilNoobs > 0 then
+            attack_monster_list(character, player_root, evilNoobs)
+        else
+            if has_noob_head() then
+                summon_evil_noob(character, player_root)
+            else
+                local moais = get_targets("Moai")
+                if #moais > 0 then
+                    attack_monster_list(character, player_root, moais)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(-2687, -81, 3491))
+                end
+            end
+        end
+        return false
+    end
+
+    -- 6. Banana (Gorilla King drop Cat Food -> Smiling Cat NPC buy)
+    if unownedSword == "Banana" then
+        if has_valid_item("Cat Food") then
+            set_status("Buying Banana Sword from Smiling Cat...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(-2896, -62, 356))
+            task.wait(0.5)
+            local sellerEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+                and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+                and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Modules")
+            if sellerEvent then
+                pcall(function() sellerEvent:FireServer("Weapon_Seller", "Smiling Cat") end)
+            end
+            task.wait(1)
+        else
+            local gorillas = get_targets("Gorilla King")
+            if #gorillas > 0 then
+                attack_monster_list(character, player_root, gorillas)
+            else
+                unlock_position(player_root)
+                move_to_target(character, player_root, CFrame.new(-3851, -91, 389))
+            end
+        end
+        return false
+    end
+
+    -- 7. Hanger (Walter Dog drop Cheems Cola + $40k -> Hanger NPC buy)
+    if unownedSword == "Hanger" then
+        local money = get_player_money()
+        if money < 40000 then
+            farm_level_step(character, player_root)
+            return false
+        end
+        if has_valid_item("Cheems Cola") then
+            set_status("Buying Hanger Sword...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            local sellerEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+                and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+                and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Modules")
+            if sellerEvent then
+                pcall(function() sellerEvent:FireServer("Weapon_Seller", "Hanger") end)
+            end
+            task.wait(1)
+        else
+            local walters = get_targets("Walter Dog")
+            if #walters > 0 then
+                attack_monster_list(character, player_root, walters)
+            else
+                unlock_position(player_root)
+                move_to_target(character, player_root, CFrame.new(-26, -37, -1133))
+            end
+        end
+        return false
+    end
+
+    -- 8. Flame Katana (Walter Dog drop Cheems Cola + $50k -> Cheems NPC buy)
+    if unownedSword == "Flame Katana" then
+        local money = get_player_money()
+        if money < 50000 then
+            farm_level_step(character, player_root)
+            return false
+        end
+        if has_valid_item("Cheems Cola") then
+            set_status("Buying Flame Katana...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            local sellerEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+                and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+                and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Modules")
+            if sellerEvent then
+                pcall(function() sellerEvent:FireServer("Weapon_Seller", "Cheems") end)
+            end
+            task.wait(1)
+        else
+            local walters = get_targets("Walter Dog")
+            if #walters > 0 then
+                attack_monster_list(character, player_root, walters)
+            else
+                unlock_position(player_root)
+                move_to_target(character, player_root, CFrame.new(-26, -37, -1133))
+            end
+        end
+        return false
+    end
+
+    -- 9. Popcat (Spam click 10,000 -> buy Ohio Popcat)
+    if unownedSword == "Popcat" then
+        local popVal = 0
+        pcall(function()
+            local pData = localPlayer:FindFirstChild("PlayerData")
+            if pData and pData:FindFirstChild("Pop") then
+                popVal = tonumber(pData.Pop.Value) or 0
+            end
+        end)
+        if popVal >= 10000 then
+            set_status("Buying Ohio Popcat...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(3494, 24, -1569))
+            task.wait(0.5)
+            local sellerEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+                and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+                and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Modules")
+            if sellerEvent then
+                pcall(function() sellerEvent:FireServer("Weapon_Seller", "Ohio Popcat") end)
+            end
+            task.wait(1)
+        else
+            set_status("Clicking Popcat (" .. tostring(popVal) .. "/10,000)...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            local distClick = (player_root.Position - Vector3.new(400, -37, -588)).Magnitude
+            if distClick > 15 then
+                move_to_target(character, player_root, CFrame.new(400, -37, -588))
+            end
+            lock_in_place(player_root)
+            local clickPart = workspace:FindFirstChild("Island")
+                and workspace.Island:FindFirstChild("FloppaIsland")
+                and workspace.Island.FloppaIsland:FindFirstChild("Popcat_Clickable")
+                and workspace.Island.FloppaIsland.Popcat_Clickable:FindFirstChild("Part")
+                and workspace.Island.FloppaIsland.Popcat_Clickable.Part:FindFirstChildWhichIsA("ClickDetector")
+            if clickPart and fireclickdetector then
+                for _ = 1, 10 do pcall(fireclickdetector, clickPart) end
+            end
+        end
+        return false
+    end
+
+    -- 10. Floppa (Cool Floppa quest + Lava Floppa prompt)
+    if unownedSword == "Floppa" then
+        if not is_floppa_quest_active() then
+            set_status("Taking Cool Floppa Quest...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(759, -30, -427))
+            task.wait(0.3)
+            local coolFloppa = workspace:FindFirstChild("NPCs")
+                and workspace.NPCs:FindFirstChild("Quests_Npc")
+                and workspace.NPCs.Quests_Npc:FindFirstChild("Cool Floppa Quest")
+            local block = coolFloppa and coolFloppa:FindFirstChild("Block")
+            local qPrompt = block and (block:FindFirstChild("QuestPrompt") or block:FindFirstChildWhichIsA("ProximityPrompt", true))
+            if qPrompt then trigger_proximity_prompt(qPrompt) end
+        else
+            set_status("Clicking Lava Floppa for Floppa Sword...", "[STAGE 3/4] SWORD FARMING")
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(794, -31, -442))
+            lock_in_place(player_root)
+            local lavaFloppa = workspace:FindFirstChild("Island")
+                and workspace.Island:FindFirstChild("FloppaIsland")
+                and workspace.Island.FloppaIsland:FindFirstChild("Lava Floppa")
+            local clickPart = lavaFloppa and lavaFloppa:FindFirstChild("ClickPart")
+            local lavaPrompt = clickPart and (clickPart:FindFirstChild("ProximityPrompt") or clickPart:FindFirstChildWhichIsA("ProximityPrompt", true))
+            if lavaPrompt then
+                for _ = 1, 10 do trigger_proximity_prompt(lavaPrompt) end
+            end
+        end
+        return false
+    end
+
+    return false
+end
+
+-- ========================================================================
+-- STAGE 4: AUTO FARM ACCESSORIES
+-- ========================================================================
+local function farm_accessories_step(character, player_root)
+    local unownedAcc = nil
+    for _, accName in ipairs(ACCESSORY_LIST) do
+        if not has_accessory(accName) then
+            unownedAcc = accName
+            break
+        end
+    end
+
+    if not unownedAcc then
+        return true -- All accessories owned!
+    end
+
+    set_status("Farming Accessory: " .. unownedAcc, "[STAGE 4/4] ACCESSORY FARMING")
+
+    -- 1. MrBeast
+    if unownedAcc == "MrBeast" then
+        local mrbeasts = get_boss_or_targets("MrBeast")
+        if #mrbeasts > 0 then
+            attack_monster_list(character, player_root, mrbeasts)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(1888, 25, -5454))
+        end
+        return false
+    end
+
+    -- 2. Noob Friend
+    if unownedAcc == "Noob Friend" then
+        local evilNoobs = get_boss_or_targets("Evil Noob")
+        if #evilNoobs > 0 then
+            attack_monster_list(character, player_root, evilNoobs)
+        else
+            if has_noob_head() then
+                summon_evil_noob(character, player_root)
+            else
+                local moais = get_targets("Moai")
+                if #moais > 0 then
+                    attack_monster_list(character, player_root, moais)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(-2665, -81, 3374))
+                end
+            end
+        end
+        return false
+    end
+
+    -- 3. Obamid
+    if unownedAcc == "Obamid" then
+        local obamids = get_boss_or_targets("Obamid")
+        if #obamids > 0 then
+            attack_monster_list(character, player_root, obamids)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(-497, -61, -3622))
+        end
+        return false
+    end
+
+    -- 4. Rick Buddy
+    if unownedAcc == "Rick Buddy" then
+        local ricks = get_boss_or_targets("Rick Roller")
+        if #ricks > 0 then
+            attack_monster_list(character, player_root, ricks)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(2348, -91, -4821))
+        end
+        return false
+    end
+
+    -- 5. Sus Face
+    if unownedAcc == "Sus Face" then
+        local susFaces = get_boss_or_targets("Sus Face")
+        if #susFaces > 0 then
+            attack_monster_list(character, player_root, susFaces)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(-3149, -77, -2338))
+        end
+        return false
+    end
+
+    -- 6. Sus Pals
+    if unownedAcc == "Sus Pals" then
+        local lordSuses = get_boss_or_targets("Lord Sus")
+        if #lordSuses > 0 then
+            attack_monster_list(character, player_root, lordSuses)
+        else
+            if has_sussy_orb() then
+                summon_lord_sus(character, player_root)
+            else
+                local ducks = get_targets("Sus Duck")
+                if #ducks > 0 then
+                    attack_monster_list(character, player_root, ducks)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(1436, -52, 2352))
+                end
+            end
+        end
+        return false
+    end
+
+    -- 7. Moai Face
+    if unownedAcc == "Moai Face" then
+        local moais = get_boss_or_targets("Moai")
+        if #moais > 0 then
+            attack_monster_list(character, player_root, moais)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(-2685, -81, 3478))
+        end
+        return false
+    end
+
+    -- 8. Giant Banana
+    if unownedAcc == "Giant Banana" then
+        local gorillas = get_boss_or_targets("Gorilla King")
+        if #gorillas > 0 then
+            attack_monster_list(character, player_root, gorillas)
+        else
+            unlock_position(player_root)
+            move_to_target(character, player_root, CFrame.new(-3851, -91, 391))
+        end
+        return false
+    end
+
+    -- 9. Pumpkin Head
+    if unownedAcc == "Pumpkin Head" then
+        local pumpkinBoss = get_boss_or_targets("Giant Pumpkin")
+        if #pumpkinBoss > 0 then
+            attack_monster_list(character, player_root, pumpkinBoss)
+        else
+            if has_flame_orb() then
+                summon_giant_pumpkin(character, player_root)
+            else
+                local skulls = get_targets("Scary Skull")
+                if #skulls > 0 then
+                    attack_monster_list(character, player_root, skulls)
+                else
+                    unlock_position(player_root)
+                    move_to_target(character, player_root, CFrame.new(-1413, -93, 1280))
+                end
+            end
+        end
+        return false
+    end
+
+    -- 10. Popcat Pet (Raid Farm)
+    if unownedAcc == "Popcat Pet" then
+        set_status("Farming Raid for Popcat Pet...", "[STAGE 4/4] ACCESSORY FARMING")
+        unlock_position(player_root)
+        move_to_target(character, player_root, Island_CFrames.RAID)
+        task.wait(0.5)
+        local startEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+            and ReplicatedStorage.OtherEvent:FindFirstChild("MiscEvents")
+            and ReplicatedStorage.OtherEvent.MiscEvents:FindFirstChild("StartRaid")
+        if startEvent and startEvent:IsA("RemoteEvent") then
+            pcall(function() startEvent:FireServer("Start") end)
+        end
+        return false
+    end
+
+    return false
+end
+
+-- ========================================================================
+-- OPPORTUNISTIC BOSS: MEME BEAST LOOP
+-- ========================================================================
+local function check_and_kill_meme_beast(character, player_root)
+    -- User requirement: wait until player level 1500+ before fighting Meme Beast
+    if get_level() < 1500 then
+        return false
+    end
+
+    local mon_folder = get_monster_folder()
+    local memeBeast = mon_folder and mon_folder:FindFirstChild("Meme Beast")
+    if memeBeast and memeBeast:FindFirstChild("HumanoidRootPart") then
+        local beast_root = memeBeast.HumanoidRootPart
+        local beast_hum = memeBeast:FindFirstChildOfClass("Humanoid")
+        if not beast_hum or beast_hum.Health > 0 then
+            set_status("Killing Meme Beast Event Boss!", "[BOSS EVENT]")
+            attack_monster_list(character, player_root, { memeBeast })
+            return true
+        end
+    end
+    return false
+end
+
+-- ========================================================================
+-- MASTER AUTONOMOUS CONTROLLER
+-- ========================================================================
+task.spawn(function()
+    while true do
+        pcall(function()
+            local character = localPlayer.Character
+            if not character then return end
+            local player_root = character:FindFirstChild("HumanoidRootPart")
+            local player_humanoid = character:FindFirstChildOfClass("Humanoid")
+            if not (player_root and player_humanoid and player_humanoid.Health > 0) then return end
+
+            -- 1. Opportunistic Meme Beast Kill (if alive, grab easy rewards)
+            if check_and_kill_meme_beast(character, player_root) then
+                return
+            end
+
+            local currentLevel = get_level()
+
+            -- STAGE 1: Auto Farm Level
+            if currentLevel < Config.MaxLevel then
+                farm_level_step(character, player_root)
+                return
+            end
+
+            -- STAGE 2: Auto Get Fighting Style (Baller)
+            if not has_baller() then
+                farm_baller_step(character, player_root)
+                return
+            end
+
+            -- STAGE 3: Auto Farm Swords
+            local swordsDone = farm_swords_step(character, player_root)
+            if not swordsDone then
+                return
+            end
+
+            -- STAGE 4: Auto Farm Accessories
+            local accsDone = farm_accessories_step(character, player_root)
+            if not accsDone then
+                return
+            end
+
+            -- STAGE 5: All Maxed Out / Endgame Cash Farm
+            set_status("All Goals Completed! Farming Cash & Gems", "[MAXED OUT]")
+            farm_level_step(character, player_root)
+        end)
+        task.wait(0.08)
+    end
+end)
+
+-- ========================================================================
+-- AUTO STAT WORKER (Melee & Health / Defense)
+-- ========================================================================
+local stats_remote = nil
+local function get_stats_remote()
+    if stats_remote then return stats_remote end
+    local otherEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+    if otherEvent then
+        local mainEvents = otherEvent:FindFirstChild("MainEvents")
+        if mainEvents then
+            stats_remote = mainEvents:FindFirstChild("StatsFunction")
+        end
+    end
+    return stats_remote
+end
+
+task.spawn(function()
+    local statToggle = true
+    while true do
+        pcall(function()
+            local remote = get_stats_remote()
+            if remote and remote:IsA("RemoteFunction") then
+                -- Alternates between MeleeLevel and DefenseLevel (Health)
+                if statToggle and Config.AutoStatMelee then
+                    remote:InvokeServer({
+                        Target = "MeleeLevel",
+                        Action = "UpgradeStats",
+                        Amount = Config.StatAmount
+                    })
+                elseif not statToggle and Config.AutoStatHealth then
+                    remote:InvokeServer({
+                        Target = "DefenseLevel",
+                        Action = "UpgradeStats",
+                        Amount = Config.StatAmount
+                    })
+                end
+                statToggle = not statToggle
+            end
+        end)
+        task.wait(0.2)
+    end
+end)
+
+-- ========================================================================
+-- BACKGROUND SAFETY WORKERS (Anti-AFK, Anti-Water, Aura, Instinct, Ragdoll)
+-- ========================================================================
+
+-- Anti-AFK (Prevents 20-minute idle kicks)
+if Config.AntiAfk then
+    pcall(function()
+        localPlayer.Idled:Connect(function()
+            VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            task.wait(0.1)
+            VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        end)
+    end)
+    task.spawn(function()
+        while true do
+            pcall(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            end)
+            task.wait(60)
+        end
+    end)
+end
+
+-- Anti Water Damage
+if Config.AntiWater then
+    task.spawn(function()
+        while true do
+            pcall(function()
+                local waterEvent = ReplicatedStorage:FindFirstChild("OtherEvent")
+                    and ReplicatedStorage.OtherEvent:FindFirstChild("MiscEvents")
+                    and ReplicatedStorage.OtherEvent.MiscEvents:FindFirstChild("WaterDamage")
+                if waterEvent and waterEvent:IsA("RemoteEvent") then
+                    waterEvent:FireServer("End_WaterDamage")
+                end
+            end)
+            task.wait(0.25)
+        end
+    end)
+end
+
+-- Auto Aura & Instinct Keepalive
+task.spawn(function()
+    while true do
+        pcall(function()
+            local char = localPlayer.Character
+            if not char then return end
+
+            if Config.AutoInstinct and not char:FindFirstChild("Highlight_Player") then
+                local abilityRemote = ReplicatedStorage:FindFirstChild("OtherEvent")
+                    and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+                    and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Ability")
+                if abilityRemote then
+                    if abilityRemote:IsA("RemoteFunction") then
+                        abilityRemote:InvokeServer("Instinct")
+                    elseif abilityRemote:IsA("RemoteEvent") then
+                        abilityRemote:FireServer("Instinct")
+                    end
+                end
+            end
+
+            if Config.AutoAura then
+                local auraFolder = char:FindFirstChild("AuraColor_Folder")
+                local hasMesh = auraFolder and (#auraFolder:GetChildren() > 0 or auraFolder:FindFirstChildWhichIsA("SpecialMesh") or auraFolder:FindFirstChildWhichIsA("BasePart"))
+                if not hasMesh then
+                    local abilityRemote = ReplicatedStorage:FindFirstChild("OtherEvent")
+                        and ReplicatedStorage.OtherEvent:FindFirstChild("MainEvents")
+                        and ReplicatedStorage.OtherEvent.MainEvents:FindFirstChild("Ability")
+                    if abilityRemote then
+                        if abilityRemote:IsA("RemoteFunction") then
+                            abilityRemote:InvokeServer("Aura")
+                        elseif abilityRemote:IsA("RemoteEvent") then
+                            abilityRemote:FireServer("Aura")
+                        end
+                    end
+                end
+            end
+        end)
+        task.wait(0.5)
+    end
+end)
+
+-- Anti Ragdoll / Anti Stun
+if Config.AntiRagdoll then
+    local function cleanMovers(char)
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        for _, child in ipairs(root:GetChildren()) do
+            if (child:IsA("BodyVelocity") or child:IsA("BodyPosition") or child:IsA("BodyGyro") or child:IsA("LinearVelocity"))
+                and child.Name ~= "HeadlessFreezeVelocity" then
+                pcall(function() child:Destroy() end)
+            end
+        end
+    end
+
+    local function setupCharStun(char)
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            hum.StateChanged:Connect(function(old, new)
+                if new == Enum.HumanoidStateType.Ragdoll or new == Enum.HumanoidStateType.FallingDown or new == Enum.HumanoidStateType.PlatformStanding then
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    cleanMovers(char)
+                end
+            end)
+        end
+    end
+
+    if localPlayer.Character then setupCharStun(localPlayer.Character) end
+    localPlayer.CharacterAdded:Connect(setupCharStun)
+end
+
+-- Ensure player character parts are NEVER anchored during auto farm (Anti-Anchored)
+task.spawn(function()
+    while true do
+        pcall(function()
+            if not Frozen then
+                local char = localPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Anchored then
+                            part.Anchored = false
+                        end
+                    end
+                end
+            end
+        end)
+        task.wait(0.15)
+    end
+end)
+
+-- ========================================================================
+-- GUI UPDATE LOOP
+-- ========================================================================
+task.spawn(function()
+    while true do
+        pcall(function()
+            if not (StatusElements.StageTag and StatusElements.StageTag.Parent) then
+                createStatusGui()
+                return
+            end
+
+            -- Update Stage Tag & Action Label
+            StatusElements.StageTag.Text = current_stage_tag
+            StatusElements.ActionLabel.Text = current_status_text
+
+            -- Target HP Bar
+            if current_target_mob and current_target_mob.Parent and current_target_mob:FindFirstChildOfClass("Humanoid") then
+                local hum = current_target_mob:FindFirstChildOfClass("Humanoid")
+                local maxHp = math.max(hum.MaxHealth, 1)
+                local curHp = math.clamp(hum.Health, 0, maxHp)
+                local pct = math.clamp(curHp / maxHp, 0, 1)
+                StatusElements.HpFill.Size = UDim2.new(pct, 0, 1, 0)
+                StatusElements.HpText.Text = current_target_mob.Name .. " - " .. tostring(math.floor(pct * 100)) .. "% HP"
+                if pct > 0.5 then
+                    StatusElements.HpFill.BackgroundColor3 = Color3.fromRGB(0, 220, 130)
+                elseif pct > 0.2 then
+                    StatusElements.HpFill.BackgroundColor3 = Color3.fromRGB(255, 180, 50)
+                else
+                    StatusElements.HpFill.BackgroundColor3 = Color3.fromRGB(240, 60, 60)
+                end
+            else
+                StatusElements.HpFill.Size = UDim2.new(0, 0, 1, 0)
+                StatusElements.HpText.Text = "Target: None / Moving"
+            end
+
+            -- Player Stats
+            local lvl = get_level()
+            StatusElements.LevelStatLabel.Text = "Level: " .. tostring(lvl) .. " / " .. tostring(Config.MaxLevel) .. " | Stats: Melee & Health (Auto)"
+
+            -- Currency
+            local money = get_player_money()
+            local gems = get_player_gems()
+            StatusElements.CurrencyLabel.Text = "$" .. tostring(money) .. " Cash | " .. tostring(gems) .. " Gems"
+
+            -- Progress Counters
+            local ownedSwords = 0
+            for _, sw in ipairs(SWORD_LIST) do
+                local isOwned = has_weapon(sw)
+                if sw == "Popcat" and not isOwned then isOwned = has_weapon("Ohio Popcat") end
+                if isOwned then ownedSwords = ownedSwords + 1 end
+            end
+
+            local ownedAccs = 0
+            for _, ac in ipairs(ACCESSORY_LIST) do
+                if has_accessory(ac) then ownedAccs = ownedAccs + 1 end
+            end
+
+            -- Live Swords Check (Banana, Popcat, Floppa, etc.)
+            local hasBanana = has_weapon("Banana") and "YES" or "NO"
+            local hasPopcat = (has_weapon("Popcat") or has_weapon("Ohio Popcat")) and "YES" or "NO"
+            local hasFloppa = has_weapon("Floppa") and "YES" or "NO"
+
+            -- Live Accessories Check (Pumpkin Head, Noob Friend, Sus Pals, etc.)
+            local hasPumpkinHead = has_accessory("Pumpkin Head") and "YES" or "NO"
+            local hasNoobFriend = has_accessory("Noob Friend") and "YES" or "NO"
+            local hasSusPals = has_accessory("Sus Pals") and "YES" or "NO"
+
+            if StatusElements.SwordStatusLabel then
+                StatusElements.SwordStatusLabel.Text = "Sword Banana: " .. hasBanana .. " | Popcat: " .. hasPopcat .. " | Floppa: " .. hasFloppa .. " (" .. tostring(ownedSwords) .. "/10)"
+            end
+
+            if StatusElements.AccStatusLabel then
+                StatusElements.AccStatusLabel.Text = "Acc Pumpkin: " .. hasPumpkinHead .. " | Noob: " .. hasNoobFriend .. " | Sus: " .. hasSusPals .. " (" .. tostring(ownedAccs) .. "/10)"
+            end
+
+            local ballerStatus = has_baller() and "[OWNED]" or "[NOT OWNED]"
+            if StatusElements.ProgressLabel then
+                StatusElements.ProgressLabel.Text = "Baller Style: " .. ballerStatus .. " | Swords: " .. tostring(ownedSwords) .. "/10 | Accs: " .. tostring(ownedAccs) .. "/10"
+            end
+        end)
+        task.wait(0.2)
+    end
+end)
+
+print("[unziphub] Loaded.")
