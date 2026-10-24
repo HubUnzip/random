@@ -247,7 +247,7 @@ local QUEST_CONFIG = {
     { minLevel = 600, questNum = 13, npcKeywords = {"13", "13"}, mobName = "Egg Dog" },
     { minLevel = 550, questNum = 12, npcKeywords = {"12", "12"}, mobName = "Sus Face" },
     { minLevel = 500, questNum = 11, npcKeywords = {"11", "11"}, mobName = "Banana Cat" },
-    { minLevel = 450, questNum = 10, npcKeywords = {"10", "10"}, mobName = "The rock" },
+    { minLevel = 450, questNum = 10, npcKeywords = {"10", "10"}, mobName = "The Rock" },
     { minLevel = 400, questNum = 9, npcKeywords = {"9", "9"}, mobName = "Snow Tree" },
     { minLevel = 350, questNum = 8, npcKeywords = {"8", "8"}, mobName = "Hamster" },
     { minLevel = 300, questNum = 7, npcKeywords = {"7", "7"}, mobName = "Staring Fish" },
