@@ -19,7 +19,7 @@ local CONFIG = {
     POLL_INTERVAL = 1.0,
     
     -- If true, messages sent from Web will be spoken by your character in Roblox chat!
-    AUTO_CHAT_IN_GAME = true,
+    AUTO_CHAT_IN_GAME = false,
     
     -- If true, allows the web dashboard to run remote Luau scripts & commands
     ALLOW_REMOTE_EXECUTION = true,
