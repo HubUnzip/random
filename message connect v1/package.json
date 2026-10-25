@@ -1,0 +1,25 @@
+{
+  "name": "roblox-web-chat-relay",
+  "version": "1.0.0",
+  "description": "Real-time two-way Chat & Command Bridge between Web (Vercel) and Roblox",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  },
+  "keywords": [
+    "roblox",
+    "chat",
+    "vercel",
+    "bridge",
+    "relay",
+    "luau"
+  ],
+  "author": "",
+  "license": "MIT"
+}
